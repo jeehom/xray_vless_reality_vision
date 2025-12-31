@@ -723,6 +723,19 @@ menu_rollback() {
   fi
 }
 
+pause_or_exit() {
+  echo
+  while true; do
+    read -r -p "（回车）返回主菜单 / 输入 0 退出： " ans
+    case "${ans:-}" in
+      "") return 0 ;;
+      0) exit 0 ;;
+      *) echo "无效输入，请回车返回或输入 0 退出。" ;;
+    esac
+  done
+}
+
+
 menu() {
   while true; do
     echo
@@ -747,17 +760,17 @@ menu() {
     case "$choice" in
       1) install_xray ;;
       2) uninstall_xray ;;
-      3) status_xray ;;
-      4) show_links ;;
-      5) set_port ;;
-      6) list_users ;;
-      7) add_user ;;
-      8) remove_user ;;
-      9) replace_user_uuid ;;
-      10) set_ipv4_domains ;;
-      11) logs_xray ;;
-      12) menu_list_backups ;;
-      13) menu_rollback ;;
+      3) status_xray pause_or_exit;;
+      4) show_links pause_or_exit;;
+      5) set_port pause_or_exit;;
+      6) list_users pause_or_exit;;
+      7) add_user pause_or_exit;;
+      8) remove_user pause_or_exit;;
+      9) replace_user_uuid pause_or_exit;;
+      10) set_ipv4_domains pause_or_exit;;
+      11) logs_xray pause_or_exit;;
+      12) menu_list_backups pause_or_exit;;
+      13) menu_rollback pause_or_exit;;
       0) exit 0 ;;
       *) warn "无效选项，请重新输入。" ;;
     esac
