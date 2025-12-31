@@ -760,20 +760,23 @@ menu() {
     case "$choice" in
       1) install_xray ;;
       2) uninstall_xray ;;
-      3) status_xray pause_or_exit;;
-      4) show_links pause_or_exit;;
-      5) set_port pause_or_exit;;
-      6) list_users pause_or_exit;;
-      7) add_user pause_or_exit;;
-      8) remove_user pause_or_exit;;
-      9) replace_user_uuid pause_or_exit;;
-      10) set_ipv4_domains pause_or_exit;;
-      11) logs_xray pause_or_exit;;
-      12) menu_list_backups pause_or_exit;;
-      13) menu_rollback pause_or_exit;;
+    
+      3) status_xray;         pause_or_exit ;;
+      4) show_links;          pause_or_exit ;;
+      5) set_port;            pause_or_exit ;;
+      6) list_users;          pause_or_exit ;;
+      7) add_user;            pause_or_exit ;;
+      8) remove_user;         pause_or_exit ;;
+      9) replace_user_uuid;   pause_or_exit ;;
+      10) set_ipv4_domains;   pause_or_exit ;;
+      11) logs_xray;          pause_or_exit ;;
+      12) menu_list_backups;  pause_or_exit ;;
+      13) menu_rollback;      pause_or_exit ;;
+    
       0) exit 0 ;;
       *) warn "无效选项，请重新输入。" ;;
     esac
+
   done
 }
 
