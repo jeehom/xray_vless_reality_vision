@@ -584,17 +584,38 @@ apply_jq_inplace_with_backup() {
 set_port() {
   need_root
   require_config
+
+  local curport
+  curport="$(jq -r '.inbounds[0].port' "${XRAY_CFG}" 2>/dev/null || echo "")"
+
   local newport="${1:-}"
-  if [[ -z "$newport" ]]; then
-    read -r -p "请输入新的端口： " newport
+
+  # 交互模式：回车取消
+  if [[ -z "${newport}" ]]; then
+    echo "当前端口：${curport}"
+    read -r -p "请输入新的端口（回车/0/q 取消）： " newport
+    case "${newport:-}" in
+      ""|0|q|Q)
+        log "已取消，未修改端口。"
+        return 0
+        ;;
+    esac
   fi
+
   validate_port "$newport" || die "端口不合法：$newport"
+
+  # 如果新端口和旧端口一致，直接返回
+  if [[ -n "$curport" && "$newport" == "$curport" ]]; then
+    log "新端口与当前端口相同（${curport}），未做修改。"
+    return 0
+  fi
 
   apply_jq_inplace_with_backup '.inbounds[0].port = $p' --argjson p "$newport"
   restart_if_running
   open_firewall_and_hints "$newport"
   log "端口已修改为：$newport"
 }
+
 
 list_users() {
   require_config
@@ -621,12 +642,22 @@ add_user() {
 remove_user() {
   need_root
   require_config
+
   list_users
   local idx="${1:-}"
+
   if [[ -z "$idx" ]]; then
-    read -r -p "请输入要删除的用户序号： " idx
+    read -r -p "请输入要删除的用户序号（回车/0/q 取消）： " idx
+    case "${idx:-}" in
+      ""|0|q|Q)
+        log "已取消，未删除任何用户。"
+        return 0
+        ;;
+    esac
   fi
+
   [[ "$idx" =~ ^[0-9]+$ ]] || die "序号不合法。"
+
   local zero=$((idx-1))
   local count
   count="$(jq '.inbounds[0].settings.clients | length' "${XRAY_CFG}")"
@@ -641,25 +672,50 @@ remove_user() {
   show_links
 }
 
+
 replace_user_uuid() {
   need_root
   require_config
+
   list_users
   local idx="${1:-}"
   local newuuid="${2:-}"
+
   if [[ -z "$idx" ]]; then
-    read -r -p "请输入要修改的用户序号： " idx
+    read -r -p "请输入要修改的用户序号（回车/0/q 取消）： " idx
+    case "${idx:-}" in
+      ""|0|q|Q)
+        log "已取消，未修改任何用户。"
+        return 0
+        ;;
+    esac
   fi
   [[ "$idx" =~ ^[0-9]+$ ]] || die "序号不合法。"
-  if [[ -z "$newuuid" ]]; then
-    read -r -p "请输入新的 UUID： " newuuid
-  fi
-  [[ -n "$newuuid" ]] || die "UUID 不能为空。"
 
   local zero=$((idx-1))
   local count
   count="$(jq '.inbounds[0].settings.clients | length' "${XRAY_CFG}")"
   [[ "$zero" -ge 0 && "$zero" -lt "$count" ]] || die "序号超出范围。"
+
+  local olduuid
+  olduuid="$(jq -r ".inbounds[0].settings.clients[$zero].id" "${XRAY_CFG}")"
+  echo "当前用户 #${idx} UUID：${olduuid}"
+
+  if [[ -z "$newuuid" ]]; then
+    read -r -p "请输入新的 UUID（回车/0/q 取消）： " newuuid
+    case "${newuuid:-}" in
+      ""|0|q|Q)
+        log "已取消，未修改 UUID。"
+        return 0
+        ;;
+    esac
+  fi
+  [[ -n "$newuuid" ]] || die "UUID 不能为空。"
+
+  if [[ "$newuuid" == "$olduuid" ]]; then
+    log "新 UUID 与当前相同，未做修改。"
+    return 0
+  fi
 
   apply_jq_inplace_with_backup \
     '.inbounds[0].settings.clients |= (to_entries | map(if .key == $i then (.value.id=$id) else .value end))' \
@@ -670,18 +726,40 @@ replace_user_uuid() {
   show_links
 }
 
+
 set_ipv4_domains() {
   need_root
   require_config
   local csv="${1:-}"
+
+  # 先显示当前配置（进入 10 就能看到）
+  echo
+  echo "=== 当前 IPv4 分流配置 ==="
+  local cur
+  cur="$(jq -r '
+    (.routing.rules // [])
+    | map(select(.outboundTag=="direct_ipv4"))
+    | .[0].domain // empty
+    | if type=="array" then join(",") else "" end
+  ' "${XRAY_CFG}" 2>/dev/null || true)"
+
+  if [[ -z "$cur" ]]; then
+    echo "当前：未设置 IPv4 分流域名（没有 direct_ipv4 规则）"
+  else
+    echo "当前 IPv4 分流域名：${cur}"
+  fi
+
+  echo "当前 routing.rules："
+  jq -c '.routing.rules // []' "${XRAY_CFG}" 2>/dev/null | jq . || true
+  echo "=========================="
+  echo
 
   # 命令行参数传入：保持原行为（允许传空来清空）
   if [[ -n "${1+set}" ]]; then
     XRAY_IPV4_DOMAINS="$csv"
   else
     echo "请输入需要强制走 IPv4 出口的域名（逗号分隔）。"
-    echo "  - 直接回车：取消，不做任何修改"
-    echo "  - 输入 0 或 q：取消，不做任何修改"
+    echo "  - 回车 / 0 / q：取消，不做任何修改"
     echo "  - 输入 clear：清空 IPv4 分流域名"
     read -r -p "域名列表： " csv
 
@@ -694,7 +772,6 @@ set_ipv4_domains() {
         csv=""
         ;;
       *)
-        # 正常输入：继续
         ;;
     esac
 
@@ -725,6 +802,7 @@ set_ipv4_domains() {
 }
 
 
+
 menu_list_backups() {
   echo
   echo "=== 配置备份列表 ==="
@@ -741,14 +819,23 @@ menu_list_backups() {
 menu_rollback() {
   need_root
   menu_list_backups
+
   local ts
-  read -r -p "请输入要回滚的时间戳（YYYYmmdd-HHMMSS），留空=最新备份： " ts
-  if [[ -z "$ts" ]]; then
-    rollback_config
-  else
-    rollback_config "$ts"
-  fi
+  read -r -p "请输入要回滚的时间戳（YYYYmmdd-HHMMSS），输入 latest=最新备份，回车/0/q 取消： " ts
+  case "${ts:-}" in
+    ""|0|q|Q)
+      log "已取消，未回滚配置。"
+      return 0
+      ;;
+    latest|LATEST|Latest)
+      rollback_config
+      ;;
+    *)
+      rollback_config "$ts"
+      ;;
+  esac
 }
+
 
 pause_or_exit() {
   echo
