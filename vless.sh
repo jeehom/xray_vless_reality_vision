@@ -1016,23 +1016,72 @@ EOF
 restore_ipv6() {
   need_root
   echo
-  echo "=== 恢复 IPv6（撤销禁用）==="
+  echo "=== 恢复服务器 IPv6（撤销禁用）==="
   show_ipv6_status
+  echo
 
-  if [[ -f "$IPV6_SYSCTL_DROPIN" ]]; then
-    backup_file "$IPV6_SYSCTL_DROPIN"
-    rm -f "$IPV6_SYSCTL_DROPIN"
+  if grep -q 'ipv6.disable=1' /proc/cmdline 2>/dev/null; then
+    warn "检测到内核启动参数 ipv6.disable=1：这会强制禁用 IPv6。"
+    warn "仅修改 sysctl 不会生效；需要修改 grub/启动参数并重启服务器。"
+    return 1
   fi
 
-  # 恢复为 0（即时生效），然后重载 sysctl
+  echo "将要执行的操作："
+  echo "  - 在 /etc/sysctl.conf 中把以下三项改为 0（或恢复为未禁用）："
+  echo "      net.ipv6.conf.all.disable_ipv6"
+  echo "      net.ipv6.conf.default.disable_ipv6"
+  echo "      net.ipv6.conf.lo.disable_ipv6"
+  echo "  - 然后执行 sysctl --system 使其生效"
+  echo
+  echo "输入 YES 确认执行；回车/0/q 取消。"
+  read -r -p "确认： " ans
+
+  case "${ans:-}" in
+    YES)
+      ;;
+    ""|0|q|Q)
+      log "已取消，未修改任何内容。"
+      return 0
+      ;;
+    *)
+      warn "未输入 YES，已取消。"
+      return 0
+      ;;
+  esac
+
+  # 备份
+  backup_file /etc/sysctl.conf
+
+  # 将三项设置为 0（如果不存在则追加）
+  # 1) 先替换已有行（无论原来是 1 还是 0 都统一成 0）
+  sed -i -E \
+    's/^[[:space:]]*(net\.ipv6\.conf\.(all|default|lo)\.disable_ipv6[[:space:]]*=[[:space:]]*).*/\10/' \
+    /etc/sysctl.conf
+
+  # 2) 若文件中完全没有这些键，则追加（避免“替换不到”导致没效果）
+  if ! grep -qE '^[[:space:]]*net\.ipv6\.conf\.all\.disable_ipv6[[:space:]]*=' /etc/sysctl.conf; then
+    printf "\n# 由 xray 管理脚本写入：恢复 IPv6\nnet.ipv6.conf.all.disable_ipv6 = 0\n" >> /etc/sysctl.conf
+  fi
+  if ! grep -qE '^[[:space:]]*net\.ipv6\.conf\.default\.disable_ipv6[[:space:]]*=' /etc/sysctl.conf; then
+    printf "net.ipv6.conf.default.disable_ipv6 = 0\n" >> /etc/sysctl.conf
+  fi
+  if ! grep -qE '^[[:space:]]*net\.ipv6\.conf\.lo\.disable_ipv6[[:space:]]*=' /etc/sysctl.conf; then
+    printf "net.ipv6.conf.lo.disable_ipv6 = 0\n" >> /etc/sysctl.conf
+  fi
+
+  # 应用配置（用 --system 更贴近真实启动加载路径）
+  sysctl --system >/dev/null 2>&1 || true
+
+  # 再保险：即时写入（避免某些系统加载顺序影响）
   sysctl -w net.ipv6.conf.all.disable_ipv6=0 >/dev/null 2>&1 || true
   sysctl -w net.ipv6.conf.default.disable_ipv6=0 >/dev/null 2>&1 || true
   sysctl -w net.ipv6.conf.lo.disable_ipv6=0 >/dev/null 2>&1 || true
-  sysctl --system >/dev/null 2>&1 || true
 
-  log "已撤销禁用设置并尝试恢复 IPv6。"
+  log "已尝试恢复 IPv6（已修改 /etc/sysctl.conf 并应用）。"
+  echo
   show_ipv6_status
 }
+
 
 server_settings_menu() {
   while true; do
