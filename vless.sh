@@ -69,8 +69,39 @@ apt_install_deps() {
 }
 
 fetch_latest_tag() {
-  curl -fsSL "https://api.github.com/repos/XTLS/Xray-core/releases/latest" | jq -r .tag_name
+  local tag=""
+
+  # 方式 A：GitHub API（可能会被限流或访问失败）
+  tag="$(curl -fsSL --max-time 8 \
+      "https://api.github.com/repos/XTLS/Xray-core/releases/latest" 2>/dev/null \
+      | jq -r '.tag_name // empty' 2>/dev/null || true)"
+
+  if [[ -n "$tag" && "$tag" == v* ]]; then
+    echo "$tag"
+    return 0
+  fi
+
+  # 方式 B：解析 releases/latest 的 Location（更不容易被 API 限流）
+  # 会返回类似：https://github.com/XTLS/Xray-core/releases/tag/v25.12.8
+  local loc
+  loc="$(curl -fsSIL --max-time 8 "https://github.com/XTLS/Xray-core/releases/latest" 2>/dev/null \
+        | awk -F': ' 'BEGIN{IGNORECASE=1} /^location:/ {print $2}' \
+        | tr -d '\r' | tail -n 1 || true)"
+
+  if [[ "$loc" == *"/tag/v"* ]]; then
+    tag="${loc##*/tag/}"
+  fi
+
+  if [[ -n "$tag" && "$tag" == v* ]]; then
+    echo "$tag"
+    return 0
+  fi
+
+  # 都失败
+  echo ""
+  return 1
 }
+
 
 get_installed_tag() {
   # 尝试从 xray version 输出提取版本号，例如：Xray 25.12.8
@@ -91,11 +122,19 @@ update_xray() {
   fi
 
   log "正在检测 Xray 更新..."
-  local latest_tag installed_ver latest_ver
-  latest_tag="$(fetch_latest_tag)"
-  [[ "$latest_tag" == v* ]] || die "获取最新版本失败。"
 
-  installed_ver="$(get_installed_tag)"
+  local latest_tag installed_ver latest_ver
+  latest_tag="$(fetch_latest_tag || true)"
+
+  if [[ -z "$latest_tag" ]]; then
+    warn "获取最新版本失败：可能是无法访问 GitHub、DNS/网络问题、或 API 限流。"
+    echo "你可以："
+    echo "  1) 直接指定版本更新（例如）：XRAY_TAG=v25.12.8 运行安装/更新"
+    echo "  2) 先测试网络：curl -I https://github.com/XTLS/Xray-core/releases/latest"
+    return 0
+  fi
+
+  installed_ver="$(get_installed_tag || true)"
   latest_ver="${latest_tag#v}"
 
   echo
@@ -103,9 +142,8 @@ update_xray() {
   echo "最新版本：${latest_ver}"
   echo
 
-  # 如果能解析到版本号，做一次简单的“是否需要更新”判断
+  # 避免降级：如果当前版本 >= 最新版本，则不更新
   if [[ -n "$installed_ver" ]]; then
-    # sort -V 支持按版本号排序
     local newest
     newest="$(printf "%s\n%s\n" "$installed_ver" "$latest_ver" | sort -V | tail -n 1)"
     if [[ "$newest" == "$installed_ver" ]]; then
@@ -114,7 +152,6 @@ update_xray() {
     fi
   fi
 
-  # 交互确认（回车取消不更新）
   read -r -p "发现新版本，是否更新到 ${latest_ver}？输入 YES 确认，回车/0/q 取消： " ans
   case "${ans:-}" in
     YES) ;;
@@ -136,10 +173,13 @@ update_xray() {
     log "已备份旧二进制：${XRAY_BIN}.bak-${ts}"
   fi
 
-  # 下载并安装新版本
-  download_xray "$latest_tag"
+  # 下载并安装新版本（download_xray 内部会 die；这里尽量把错误显出来）
+  if ! download_xray "$latest_tag"; then
+    warn "下载/安装 Xray 失败。请检查网络是否能访问 GitHub releases。"
+    return 0
+  fi
 
-  # 重启服务（存在则重启，不存在就提示）
+  # 重启服务
   if systemctl list-unit-files | grep -q '^xray\.service'; then
     systemctl restart xray || true
   fi
