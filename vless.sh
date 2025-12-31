@@ -72,6 +72,78 @@ fetch_latest_tag() {
   curl -fsSL "https://api.github.com/repos/XTLS/Xray-core/releases/latest" | jq -r .tag_name
 }
 
+get_installed_tag() {
+  # 尝试从 xray version 输出提取版本号，例如：Xray 25.12.8
+  if [[ -x "${XRAY_BIN}" ]]; then
+    "${XRAY_BIN}" version 2>/dev/null | head -n 1 | awk '{print $2}' | sed 's/^v//'
+  else
+    echo ""
+  fi
+}
+
+update_xray() {
+  need_root
+
+  if [[ ! -x "${XRAY_BIN}" ]]; then
+    warn "未检测到 Xray 可执行文件：${XRAY_BIN}"
+    warn "请先执行安装。"
+    return 0
+  fi
+
+  log "正在检测 Xray 更新..."
+  local latest_tag installed_ver latest_ver
+  latest_tag="$(fetch_latest_tag)"
+  [[ "$latest_tag" == v* ]] || die "获取最新版本失败。"
+
+  installed_ver="$(get_installed_tag)"
+  latest_ver="${latest_tag#v}"
+
+  echo
+  echo "当前版本：${installed_ver:-unknown}"
+  echo "最新版本：${latest_ver}"
+  echo
+
+  if [[ -n "$installed_ver" && "$installed_ver" == "$latest_ver" ]]; then
+    log "已是最新版本，无需更新。"
+    return 0
+  fi
+
+  # 交互确认（回车取消不更新）
+  read -r -p "发现新版本，是否更新到 ${latest_ver}？输入 YES 确认，回车/0/q 取消： " ans
+  case "${ans:-}" in
+    YES) ;;
+    ""|0|q|Q)
+      log "已取消更新。"
+      return 0
+      ;;
+    *)
+      warn "未输入 YES，已取消。"
+      return 0
+      ;;
+  esac
+
+  # 备份当前二进制
+  if [[ -f "${XRAY_BIN}" ]]; then
+    local ts
+    ts="$(date +"%Y%m%d-%H%M%S")"
+    cp -a "${XRAY_BIN}" "${XRAY_BIN}.bak-${ts}"
+    log "已备份旧二进制：${XRAY_BIN}.bak-${ts}"
+  fi
+
+  # 下载并安装新版本
+  download_xray "$latest_tag"
+
+  # 重启服务（存在则重启，不存在就提示）
+  if systemctl list-unit-files | grep -q '^xray\.service'; then
+    systemctl restart xray || true
+  fi
+
+  echo
+  log "更新完成。"
+  echo "更新后版本：$("${XRAY_BIN}" version 2>/dev/null | head -n 1 || true)"
+}
+
+
 download_xray() {
   local tag="$1"
   local arch filename url tmpdir
@@ -1117,6 +1189,30 @@ server_settings_menu() {
   done
 }
 
+service_menu() {
+  while true; do
+    echo
+    echo "================ 服务管理（Xray） ================"
+    echo "1) 查看状态"
+    echo "2) 启动服务"
+    echo "3) 停止服务"
+    echo "4) 重启服务"
+    echo "5) 检测/更新 Xray"
+    echo "0) 返回主菜单"
+    echo "=================================================="
+    read -r -p "请选择操作编号： " c
+
+    case "$c" in
+      1) status_xray;  pause_or_exit ;;
+      2) start_xray;   pause_or_exit ;;
+      3) stop_xray;    pause_or_exit ;;
+      4) restart_xray; pause_or_exit ;;
+      5) update_xray;  pause_or_exit ;;
+      0) return 0 ;;
+      *) warn "无效选项，请重新输入。" ;;
+    esac
+  done
+}
 
 menu() {
   while true; do
@@ -1124,7 +1220,7 @@ menu() {
     echo "================ Xray REALITY 管理菜单 ================"
     echo "1) 安装（VLESS + REALITY + Vision）"
     echo "2) 卸载（停止服务 + 删除文件/用户）"
-    echo "3) 查看状态"
+    echo "3) 服务管理（状态/启动/停止/重启/更新）"
     echo "4) 显示客户端链接"
     echo "5) 修改端口"
     echo "6) 查看用户（UUID 列表）"
@@ -1135,10 +1231,7 @@ menu() {
     echo "11) 查看日志（journalctl）"
     echo "12) 查看配置备份"
     echo "13) 回滚配置"
-    echo "14) 启动服务"
-    echo "15) 停止服务"
-    echo "16) 重启服务"
-    echo "17) 服务器设置"
+    echo "14) 服务器设置"
     echo "0) 退出"
     echo "======================================================"
     read -r -p "请选择操作编号： " choice
@@ -1146,7 +1239,7 @@ menu() {
     case "$choice" in
       1) install_xray ;;
       2) uninstall_xray ;;
-      3) status_xray;         pause_or_exit ;;
+      3) service_menu ;;
       4) show_links;          pause_or_exit ;;
       5) set_port;            pause_or_exit ;;
       6) list_users;          pause_or_exit ;;
@@ -1157,10 +1250,7 @@ menu() {
       11) logs_xray;          pause_or_exit ;;
       12) menu_list_backups;  pause_or_exit ;;
       13) menu_rollback;      pause_or_exit ;;
-      14) start_xray; pause_or_exit ;;
-      15) stop_xray; pause_or_exit ;;
-      16) restart_xray; pause_or_exit ;;
-      17) server_settings_menu ;;
+      14) server_settings_menu ;;
       0) exit 0 ;;
       *) warn "无效选项，请重新输入。" ;;
     esac
