@@ -24,7 +24,6 @@ XRAY_LOG_DIR="/var/log/xray"
 GAI_CONF="/etc/gai.conf"
 IPV6_SYSCTL_DROPIN="/etc/sysctl.d/99-xray-disable-ipv6.conf"
 
-
 # 默认值（可用环境变量覆盖）
 XRAY_PORT="${XRAY_PORT:-}"                 # 空 => 安装交互时默认随机端口
 XRAY_LISTEN="${XRAY_LISTEN:-0.0.0.0}"
@@ -130,7 +129,6 @@ backup_file() {
   cp -a "$f" "$bak"
   log "已创建备份：${bak}"
 }
-
 
 list_backups() {
   ls -1 "${XRAY_CFG}.bak-"* 2>/dev/null | sort || true
@@ -995,6 +993,41 @@ restore_ipv6() {
   show_ipv6_status
 }
 
+server_settings_menu() {
+  while true; do
+    echo
+    echo "================ 服务器设置 ================"
+    echo "1) 设置服务器 IPv4 优先（gai.conf）"
+    echo "2) 恢复默认地址优先级（取消 IPv4 优先）"
+    echo "3) 禁用服务器 IPv6（sysctl）"
+    echo "4) 恢复服务器 IPv6（撤销禁用）"
+    echo "5) 查看当前服务器网络设置状态"
+    echo "0) 返回主菜单"
+    echo "==========================================="
+    read -r -p "请选择操作编号： " c
+
+    case "$c" in
+      1) set_ipv4_prefer;     pause_or_exit ;;
+      2) restore_ipv4_prefer; pause_or_exit ;;
+      3) disable_ipv6;        pause_or_exit ;;
+      4) restore_ipv6;        pause_or_exit ;;
+      5)
+        echo
+        echo "=== 当前服务器网络设置状态 ==="
+        echo "[IPv4 优先]"
+        show_ipv4_prefer_status
+        echo
+        echo "[IPv6 状态]"
+        show_ipv6_status
+        pause_or_exit
+        ;;
+      0) return 0 ;;
+      *) warn "无效选项，请重新输入。" ;;
+    esac
+  done
+}
+
+
 menu() {
   while true; do
     echo
@@ -1015,10 +1048,7 @@ menu() {
     echo "14) 启动服务"
     echo "15) 停止服务"
     echo "16) 重启服务"
-    echo "17) 设置服务器 IPv4 优先（gai.conf）"
-    echo "18) 恢复默认地址优先级（取消 IPv4 优先）"
-    echo "19) 禁用服务器 IPv6（sysctl）"
-    echo "20) 恢复服务器 IPv6（撤销禁用）"
+    echo "17) 服务器设置"
     echo "0) 退出"
     echo "======================================================"
     read -r -p "请选择操作编号： " choice
@@ -1040,10 +1070,7 @@ menu() {
       14) start_xray; pause_or_exit ;;
       15) stop_xray; pause_or_exit ;;
       16) restart_xray; pause_or_exit ;;
-      17) set_ipv4_prefer;      pause_or_exit ;;
-      18) restore_ipv4_prefer;  pause_or_exit ;;
-      19) disable_ipv6;         pause_or_exit ;;
-      20) restore_ipv6;         pause_or_exit ;;
+      17) server_settings_menu ;;
       0) exit 0 ;;
       *) warn "无效选项，请重新输入。" ;;
     esac
