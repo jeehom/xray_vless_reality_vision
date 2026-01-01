@@ -6,7 +6,7 @@ set -euo pipefail
 # 使用方法：bash -c 'curl -fsSL "https://raw.githubusercontent.com/jeehom/XVRV/main/vless.sh" -o /usr/local/bin/vless && chmod +x /usr/local/bin/vless && exec /usr/local/bin/vless'
 # ============================================================
 
-SCRIPT_VERSION="2026-01-01 21:44"
+SCRIPT_VERSION="2026-01-01 21:55"
 AUTO_CHECK_UPDATES="${AUTO_CHECK_UPDATES:-1}"   # 1=启用；0=关闭
 XRAY_BIN="/usr/local/bin/xray"
 XRAY_ETC_DIR="/etc/xray"
@@ -60,6 +60,10 @@ HY2_SERVICE="hysteria-server.service"
 HY2_CFG="/etc/hysteria/config.yaml"
 HY2_LINK_ENV="/etc/hysteria/link.env"              # 保存“生成链接需要的信息”
 HY2_PORT_HOPPING_ENV="/etc/hysteria/port_hopping.env"  # 保存端口跳跃范围
+# HY2 自签证书（固定路径）
+HY2_CERT_DIR="/etc/hysteria/certs"
+HY2_CERT_FILE="${HY2_CERT_DIR}/selfsigned.crt"
+HY2_KEY_FILE="${HY2_CERT_DIR}/selfsigned.key"
 
 # 常见安装后二进制名（官方脚本通常装为 hysteria）
 HY2_BIN_CANDIDATES=(
@@ -1847,7 +1851,7 @@ hy2_show_links() {
   # 读取向导保存的链接偏好
   if [[ -f "$HY2_LINK_ENV" ]]; then
     # 修复：将中文句号改为英文点号
-    . "$HY2_LINK_ENV" || true
+    。 "$HY2_LINK_ENV" || true
   fi
 
   host="${HY2_LINK_HOST:-${ip:-<你的服务器IP>}}"
@@ -1865,8 +1869,7 @@ hy2_show_links() {
   # 读取端口跳跃信息用于展示
   hop_start="" ; hop_end=""
   if [[ -f "$HY2_PORT_HOPPING_ENV" ]]; then
-    # 修复：将中文句号改为英文点号
-    。 "$HY2_PORT_HOPPING_ENV" || true
+. "$HY2_PORT_HOPPING_ENV" || true
     hop_start="${HY2_HOP_START:-}"
     hop_end="${HY2_HOP_END:-}"
   fi
@@ -1890,6 +1893,92 @@ hy2_show_links() {
   echo
 }
 
+is_ip_addr() {
+  local s="$1"
+  [[ "$s" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
+  # 粗略校验每段 0-255
+  local IFS=. a b c d
+  read -r a b c d <<<"$s"
+  for x in "$a" "$b" "$c" "$d"; do
+    [[ "$x" -ge 0 && "$x" -le 255 ]] || return 1
+  done
+  return 0
+}
+
+hy2_gen_selfsigned_cert() {
+  # $1: 证书 CN / SAN 主体（域名或 IP）
+  need_root
+  local cn="${1:-}"
+  [[ -n "$cn" ]] || die "生成自签证书失败：CN 为空"
+
+  mkdir -p "$HY2_CERT_DIR"
+  chmod 700 "$HY2_CERT_DIR" 2>/dev/null || true
+
+  # SAN：DNS 或 IP
+  local san=""
+  if is_ip_addr "$cn"; then
+    san="IP:${cn}"
+  else
+    san="DNS:${cn}"
+  fi
+
+  # 兼容旧 openssl：优先 -addext；没有则用临时 openssl.cnf
+  if openssl req -help 2>&1 | grep -q -- '-addext'; then
+    openssl req -x509 -newkey rsa:2048 -nodes \
+      -keyout "$HY2_KEY_FILE" \
+      -out "$HY2_CERT_FILE" \
+      -days 3650 \
+      -subj "/CN=${cn}" \
+      -addext "subjectAltName=${san}" \
+      >/dev/null 2>&1
+  else
+    local tmpcnf
+    tmpcnf="$(mktemp -t hy2openssl.XXXXXX)"
+    cat >"$tmpcnf" <<EOF
+[ req ]
+default_bits       = 2048
+distinguished_name = dn
+x509_extensions    = v3_req
+prompt             = no
+
+[ dn ]
+CN = ${cn}
+
+[ v3_req ]
+subjectAltName = ${san}
+EOF
+    openssl req -x509 -newkey rsa:2048 -nodes \
+      -keyout "$HY2_KEY_FILE" \
+      -out "$HY2_CERT_FILE" \
+      -days 3650 \
+      -config "$tmpcnf" \
+      >/dev/null 2>&1
+    rm -f "$tmpcnf" >/dev/null 2>&1 || true
+  fi
+
+  [[ -s "$HY2_CERT_FILE" && -s "$HY2_KEY_FILE" ]] || die "自签证书生成失败（openssl 输出为空）"
+}
+
+hy2_fix_tls_permissions() {
+  need_root
+  [[ -f "$HY2_CERT_FILE" && -f "$HY2_KEY_FILE" ]] || return 0
+
+  local unit="/etc/systemd/system/hysteria-server.service"
+  local svc_user=""
+  svc_user="$(awk -F= '/^[[:space:]]*User=/{print $2; exit}' "$unit" 2>/dev/null | tr -d '\r' || true)"
+  if [[ -z "$svc_user" ]]; then
+    svc_user="$(systemctl show -p User --value hysteria-server.service 2>/dev/null | tr -d '\r' || true)"
+  fi
+
+  if [[ -z "$svc_user" || "$svc_user" == "root" ]]; then
+    chmod 600 "$HY2_CERT_FILE" "$HY2_KEY_FILE" 2>/dev/null || true
+    return 0
+  fi
+
+  # root 可读写，服务用户组可读；其他人不可读
+  chown root:"$svc_user" "$HY2_CERT_FILE" "$HY2_KEY_FILE" 2>/dev/null || true
+  chmod 640 "$HY2_CERT_FILE" "$HY2_KEY_FILE" 2>/dev/null || true
+}
 
 hy2_fix_cfg_permissions() {
   need_root
@@ -1920,8 +2009,10 @@ hy2_config_wizard() {
   need_root
 
   echo
-  echo "=== HY2 配置向导（生成可用服务端配置）==="
+  echo "=== HY2 配置向导（仅自签名证书）==="
   echo "配置文件：${HY2_CFG}"
+  echo "证书文件：${HY2_CERT_FILE}"
+  echo "私钥文件：${HY2_KEY_FILE}"
   echo
 
   # 端口
@@ -1951,88 +2042,69 @@ hy2_config_wizard() {
     esac
   fi
 
-  # 修复：链接端口始终使用单端口，不再拼接范围
-  local link_host="" link_sni="" link_insecure="0"
-  local link_ports="$port"
+  # 链接参数（自签：默认 insecure=1）
+  local link_host="" link_sni="" link_insecure="1"
+  local ip
+  ip="$(get_server_ip || true)"
 
-  echo
-  echo "证书方式："
-  echo "1) ACME 自动申请证书（需要域名解析到本机）"
-  echo "2) 使用已有证书文件"
-  echo "（回车/0/q 取消）"
-  local mode=""
-  read -r -p "请选择： " mode
-  case "${mode:-}" in
-    ""|0|q|Q) log "已取消。"; return 0 ;;
-  esac
+  read -r -p "生成链接使用的地址（域名或IP；默认：${ip:-<你的服务器IP>}）： " link_host
+  [[ -n "$link_host" ]] || link_host="${ip:-<你的服务器IP>}"
 
+  # SNI：用域名访问时建议填域名；IP 可留空
+  read -r -p "客户端 SNI（用域名时建议填同一个域名；回车自动用 ${link_host}）： " link_sni
+  [[ -n "$link_sni" ]] || link_sni="$link_host"
+
+  # 自签证书的 CN/SAN：用 SNI 更合理；如果用户填了 SNI 就用它
+  local cert_name="$link_sni"
+  [[ -n "$cert_name" ]] || cert_name="$link_host"
+
+  # 生成密码
   local auth_pass
   auth_pass="$(hy2_random_password)"
 
+  # 备份旧配置
   if [[ -f "$HY2_CFG" ]]; then
     backup_file "$HY2_CFG"
   fi
 
-  if [[ "$mode" == "1" ]]; then
-    local domain email
-    read -r -p "请输入域名（回车/0/q 取消）： " domain
-    case "${domain:-}" in ""|0|q|Q) return 0 ;; esac
-    read -r -p "请输入邮箱（回车/0/q 取消）： " email
-    case "${email:-}" in ""|0|q|Q) return 0 ;; esac
+  # 生成/覆盖自签证书
+  hy2_gen_selfsigned_cert "$cert_name"
 
-    cat >"$HY2_CFG" <<EOF
+  # 写入 HY2 配置（只保留 tls cert/key）
+  cat >"$HY2_CFG" <<EOF
 listen: :${port}
-acme:
-  domains:
-    - ${domain}
-  email: ${email}
-auth:
-  type: password
-  password: ${auth_pass}
-EOF
-    link_host="$domain"
-    link_sni="$domain"
-    link_insecure="0"
-    hy2_save_link_env "$link_host" "$link_sni" "$link_insecure" "$link_ports"
 
-  elif [[ "$mode" == "2" ]]; then
-    local cert key
-    read -r -p "cert 证书路径： " cert
-    read -r -p "key 私钥路径： " key
-    [[ -f "$cert" ]] || warn "证书不存在"
-    [[ -f "$key"  ]] || warn "私钥不存在"
-
-    cat >"$HY2_CFG" <<EOF
-listen: :${port}
 tls:
-  cert: ${cert}
-  key: ${key}
+  cert: ${HY2_CERT_FILE}
+  key: ${HY2_KEY_FILE}
+
 auth:
   type: password
   password: ${auth_pass}
 EOF
-    read -r -p "生成链接使用的地址（回车默认IP）： " link_host
-    read -r -p "SNI（回车跳过）： " link_sni
-    read -r -p "是否 insecure=1 (yes/no)： " link_insecure
-    [[ -n "$link_host" ]] || link_host="$(get_server_ip)"
-    [[ "${link_insecure:-}" == "yes" ]] && link_insecure="1" || link_insecure="0"
-    hy2_save_link_env "$link_host" "$link_sni" "$link_insecure" "$link_ports"
-  else
-    return 0
-  fi
 
+  # 保存“生成链接需要的信息”（注意：你的 hy2_show_links 目前强制只用单端口，保持一致）
+  hy2_save_link_env "$link_host" "$link_sni" "$link_insecure" "$port"
+
+  # 权限：cfg + 证书/私钥都要让服务用户可读（否则会 permission denied）
   chmod 600 "$HY2_CFG" 2>/dev/null || true
   hy2_fix_cfg_permissions
-  
+  hy2_fix_tls_permissions
+
+  # 启动并自启
   systemctl daemon-reload >/dev/null 2>&1 || true
   systemctl enable --now "$HY2_SERVICE" >/dev/null 2>&1 || true
   systemctl restart "$HY2_SERVICE" >/dev/null 2>&1 || true
 
   echo
-  log "HY2 配置完成。"
+  log "HY2 配置完成（自签证书）。"
+  echo "服务密码（请保存）：${auth_pass}"
   hy2_show_links
+
   hy2_open_firewall_hints "$port"
+  systemctl --no-pager --full status "$HY2_SERVICE" || true
 }
+
 
 
 hy2_service_menu() {
