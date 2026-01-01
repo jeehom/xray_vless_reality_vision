@@ -625,7 +625,7 @@ show_links() {
   while IFS= read -r uuid; do
     [[ -n "$uuid" ]] || continue
     i=$((i+1))
-    name="xray-reality-${i}"
+    name="vless-reality-${i}"
     link="vless://${uuid}@${ip}:${port}?encryption=none&security=reality&sni=${sni}&fp=${fp}&pbk=${pubkey}&sid=${shortid}&type=tcp&flow=xtls-rprx-vision#${name}"
     echo
     echo "用户 #${i}：${uuid}"
