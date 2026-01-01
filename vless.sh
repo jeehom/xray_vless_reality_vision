@@ -6,7 +6,7 @@ set -euo pipefail
 # 使用方法：bash -c 'curl -fsSL "https://raw.githubusercontent.com/jeehom/XVRV/main/vless.sh" -o /usr/local/bin/vless && chmod +x /usr/local/bin/vless && exec /usr/local/bin/vless'
 # ============================================================
 
-SCRIPT_VERSION="2026-01-01 21:06"
+SCRIPT_VERSION="2026-01-01 21:15"
 AUTO_CHECK_UPDATES="${AUTO_CHECK_UPDATES:-1}"   # 1=启用；0=关闭
 XRAY_BIN="/usr/local/bin/xray"
 XRAY_ETC_DIR="/etc/xray"
@@ -1792,59 +1792,76 @@ hy2_open_firewall_hints_range() {
 }
 
 hy2_save_link_env() {
-  # $1=host $2=sni $3=insecure(0/1) $4=listen_port
+  # $1=host $2=sni $3=insecure(0/1) $4=ports(例如 21922 或 443,21000-22000)
   mkdir -p /etc/hysteria || true
+
+  local host="${1:-}"
+  local sni="${2:-}"
+  local insecure="${3:-0}"
+  local ports="${4:-}"
+
+  # 用 printf %q 做 shell-safe 转义，确保 source 不炸
   cat >"$HY2_LINK_ENV" <<EOF
-HY2_LINK_HOST=$1
-HY2_LINK_SNI=$2
-HY2_LINK_INSECURE=$3
-HY2_LINK_PORT=$4
+HY2_LINK_HOST=$(printf '%q' "$host")
+HY2_LINK_SNI=$(printf '%q' "$sni")
+HY2_LINK_INSECURE=$(printf '%q' "$insecure")
+HY2_LINK_PORT=$(printf '%q' "$ports")
 EOF
+
   chmod 600 "$HY2_LINK_ENV" 2>/dev/null || true
 }
-
-
+hy2_parse_auth_password() {
+  [[ -f "$HY2_CFG" ]] || { echo ""; return 0; }
+  awk '
+    /^[[:space:]]*password[[:space:]]*:/ {
+      sub(/^[^:]*:[[:space:]]*/, "", $0)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", $0)
+      gsub(/^["'\'']|["'\'']$/, "", $0)
+      print; exit
+    }
+  ' "$HY2_CFG" 2>/dev/null || true
+}
 hy2_show_links() {
   need_root
   [[ -f "$HY2_CFG" ]] || { warn "未找到配置：$HY2_CFG（请先安装并完成配置向导）"; return 0; }
 
-  local ip host sni insecure listen_port auth_pass port_part hop_start hop_end
-  ip="$(get_server_ip)"
-  listen_port="$(hy2_parse_listen_port)"
+  local ip host sni insecure auth_pass
+  local base_port port_part hop_start hop_end
+
+  ip="$(get_server_ip || true)"
+
+  # 解析服务真实监听端口（单端口），用于“端口跳跃 -> :base_port”显示
+  base_port="$(hy2_parse_listen_port || true)"
+
+  # 读取向导保存的链接偏好
   if [[ -f "$HY2_LINK_ENV" ]]; then
     # shellcheck disable=SC1090
     . "$HY2_LINK_ENV" || true
   fi
-  # 优先用向导保存的端口，其次再用解析出来的端口；都没有就别瞎默认 443
-  if [[ -n "${HY2_LINK_PORT:-}" ]]; then
-    listen_port="$HY2_LINK_PORT"
-  fi
-  [[ -n "$listen_port" ]] || listen_port="<未知端口，请检查 ${HY2_CFG} 的 listen: 行>"
 
-  [[ -n "$auth_pass" ]] || auth_pass="<请检查 ${HY2_CFG} 的 auth.password>"
-
-  # 读取保存的链接偏好
-  if [[ -f "$HY2_LINK_ENV" ]]; then
-    # shellcheck disable=SC1090
-    。 "$HY2_LINK_ENV" || true
-  fi
   host="${HY2_LINK_HOST:-${ip:-<你的服务器IP>}}"
   sni="${HY2_LINK_SNI:-}"
   insecure="${HY2_LINK_INSECURE:-0}"
 
-  # 端口跳跃范围（如果启用）
+  # ✅ 端口优先级：ENV 保存的(可多端口) > 从配置解析出的单端口
+  if [[ -n "${HY2_LINK_PORT:-}" ]]; then
+    port_part="${HY2_LINK_PORT}"
+  else
+    port_part="${base_port:-}"
+  fi
+  [[ -n "$port_part" ]] || port_part="<未知端口，请检查 ${HY2_CFG} 的 listen: 行>"
+
+  # 解析密码
+  auth_pass="$(hy2_parse_auth_password || true)"
+  [[ -n "$auth_pass" ]] || auth_pass="<请检查 ${HY2_CFG} 的 auth.password>"
+
+  # 端口跳跃范围（如果启用，用于提示信息；URI 端口已经在 port_part 里了就不重复拼）
   hop_start="" ; hop_end=""
   if [[ -f "$HY2_PORT_HOPPING_ENV" ]]; then
     # shellcheck disable=SC1090
-    。 "$HY2_PORT_HOPPING_ENV" || true
+    . "$HY2_PORT_HOPPING_ENV" || true
     hop_start="${HY2_HOP_START:-}"
     hop_end="${HY2_HOP_END:-}"
-  fi
-
-  port_part="$listen_port"
-  if [[ -n "$hop_start" && -n "$hop_end" ]]; then
-    # URI 支持 multi-port：:123,5000-6000 :contentReference[oaicite:3]{index=3}
-    port_part="${listen_port},${hop_start}-${hop_end}"
   fi
 
   local qs=""
@@ -1857,13 +1874,14 @@ hy2_show_links() {
   echo "端口：    ${port_part} (UDP)"
   echo "密码：    ${auth_pass}"
   if [[ -n "$hop_start" && -n "$hop_end" ]]; then
-    echo "端口跳跃：UDP ${hop_start}-${hop_end} -> :${listen_port}"
+    echo "端口跳跃：UDP ${hop_start}-${hop_end} -> :${base_port:-?}"
   fi
   echo
   echo "分享链接（hy2 URI）："
   echo "hy2://${auth_pass}@${host}:${port_part}/?${qs}"
   echo
 }
+
 
 hy2_fix_cfg_permissions() {
   need_root
@@ -1907,10 +1925,9 @@ hy2_config_wizard() {
     0|q|Q) log "已取消，未修改 HY2 配置。"; return 0 ;;
   esac
   hy2_validate_port "$port" || die "端口不合法：$port"
-  # 端口跳跃（Port Hopping）：用 DNAT 把一段 UDP 端口范围转发到真实监听端口 :contentReference[oaicite:4]{index=4}
-  local hop_enable=""
-  local hop_range=""
-  local hop_start="" hop_end=""
+
+  # 端口跳跃（Port Hopping）
+  local hop_enable="" hop_range="" hop_start="" hop_end=""
   read -r -p "是否启用端口跳跃（Port Hopping）？输入 yes 启用（回车跳过）： " hop_enable
   if [[ "${hop_enable:-}" == "yes" ]]; then
     read -r -p "请输入跳跃端口范围（例如 5000-6000；回车/0/q 取消）： " hop_range
@@ -1926,6 +1943,13 @@ hy2_config_wizard() {
     esac
   fi
 
+  # ✅ 统一：用于生成分享链接的信息（先初始化，避免 set -u 炸）
+  local link_host="" link_sni="" link_insecure="0"
+  local link_ports="$port"
+  if [[ -n "${hop_enable:-}" && -n "${hop_start:-}" && -n "${hop_end:-}" ]]; then
+    # 端口跳跃：分享给客户端的“入口端口”写成 21922,21000-22000 这种
+    link_ports="${port},${hop_start}-${hop_end}"
+  fi
 
   echo
   echo "证书方式："
@@ -1953,7 +1977,6 @@ hy2_config_wizard() {
     read -r -p "请输入邮箱（用于 ACME；回车/0/q 取消）： " email
     case "${email:-}" in ""|0|q|Q) log "已取消，未修改 HY2 配置。"; return 0 ;; esac
 
-    # 参考官方快速配置模板：listen + acme + auth(password):contentReference[oaicite:1]{index=1}
     cat >"$HY2_CFG" <<EOF
 listen: :${port}
 
@@ -1968,8 +1991,12 @@ auth:
 EOF
 
     log "已写入 ACME 配置。注意：ACME 通常需要 80 端口可达用于验证。"
-    # ACME：通常用域名连接，证书校验正常（insecure=0）
-    hy2_save_link_env "${link_host}" "${link_sni}" "${link_insecure}" "${port}"
+
+    # ✅ ACME：host/sni 用域名；insecure=0
+    link_host="$domain"
+    link_sni="$domain"
+    link_insecure="0"
+    hy2_save_link_env "$link_host" "$link_sni" "$link_insecure" "$link_ports"
 
   elif [[ "$mode" == "2" ]]; then
     local cert key
@@ -1981,7 +2008,6 @@ EOF
     [[ -f "$cert" ]] || warn "证书文件不存在：$cert（如果稍后才放上来也可以，但服务启动会失败）"
     [[ -f "$key"  ]] || warn "私钥文件不存在：$key（如果稍后才放上来也可以，但服务启动会失败）"
 
-    # 参考官方快速配置模板：listen + tls(cert/key) + auth(password):contentReference[oaicite:2]{index=2}
     cat >"$HY2_CFG" <<EOF
 listen: :${port}
 
@@ -1995,14 +2021,17 @@ auth:
 EOF
 
     log "已写入自有证书配置。"
-    local link_host link_sni link_insecure
+
     read -r -p "生成分享链接时使用的域名/地址（默认：服务器公网IP；回车使用默认）： " link_host
-    read -r -p "客户端 SNI（可留空；如果用域名证书建议填域名）： " link_sni
+    read -r -p "客户端 SNI（可留空；如果用域名证书建议填域名；回车跳过）： " link_sni
     read -r -p "是否需要 insecure=1（IP直连/自签常用）？输入 yes 启用（默认 0）： " link_insecure
 
     [[ -n "$link_host" ]] || link_host="$(get_server_ip)"
     [[ "${link_insecure:-}" == "yes" ]] && link_insecure="1" || link_insecure="0"
-    hy2_save_link_env "${link_host}" "${link_sni}" "${link_insecure}"
+    # SNI 允许空；如果你想更“自动”，也可以：[[ -z "$link_sni" ]] && link_sni="$link_host"
+
+    # ✅ 这里也要把端口(含跳跃范围)一起存
+    hy2_save_link_env "$link_host" "$link_sni" "$link_insecure" "$link_ports"
 
   else
     warn "无效选择：$mode"
@@ -2013,7 +2042,6 @@ EOF
 
   hy2_fix_cfg_permissions
 
-  # 启动并自启
   systemctl daemon-reload >/dev/null 2>&1 || true
   systemctl enable --now "$HY2_SERVICE" >/dev/null 2>&1 || true
   systemctl restart "$HY2_SERVICE" >/dev/null 2>&1 || true
@@ -2024,8 +2052,9 @@ EOF
   hy2_show_links
 
   hy2_open_firewall_hints "$port"
-  systemctl --no-pager --full status "$HY2_SERVICE" || true
+  systemctl --no-pager isn’t possible? true
 }
+
 
 hy2_service_menu() {
   while true; do
