@@ -6,7 +6,7 @@ set -euo pipefail
 # 使用方法：bash -c 'curl -fsSL "https://raw.githubusercontent.com/jeehom/XVRV/main/vless.sh" -o /usr/local/bin/vless && chmod +x /usr/local/bin/vless && exec /usr/local/bin/vless'
 # ============================================================
 
-SCRIPT_VERSION="2026-01-01 20:40"
+SCRIPT_VERSION="2026-01-01 21:06"
 AUTO_CHECK_UPDATES="${AUTO_CHECK_UPDATES:-1}"   # 1=启用；0=关闭
 XRAY_BIN="/usr/local/bin/xray"
 XRAY_ETC_DIR="/etc/xray"
@@ -1792,15 +1792,17 @@ hy2_open_firewall_hints_range() {
 }
 
 hy2_save_link_env() {
-  # $1=host $2=sni $3=insecure(0/1)
+  # $1=host $2=sni $3=insecure(0/1) $4=listen_port
   mkdir -p /etc/hysteria || true
   cat >"$HY2_LINK_ENV" <<EOF
 HY2_LINK_HOST=$1
 HY2_LINK_SNI=$2
 HY2_LINK_INSECURE=$3
+HY2_LINK_PORT=$4
 EOF
   chmod 600 "$HY2_LINK_ENV" 2>/dev/null || true
 }
+
 
 hy2_show_links() {
   need_root
@@ -1809,14 +1811,22 @@ hy2_show_links() {
   local ip host sni insecure listen_port auth_pass port_part hop_start hop_end
   ip="$(get_server_ip)"
   listen_port="$(hy2_parse_listen_port)"
-  auth_pass="$(hy2_read_password_from_cfg)"
-  [[ -n "$listen_port" ]] || listen_port="443"
+  if [[ -f "$HY2_LINK_ENV" ]]; then
+    # shellcheck disable=SC1090
+    . "$HY2_LINK_ENV" || true
+  fi
+  # 优先用向导保存的端口，其次再用解析出来的端口；都没有就别瞎默认 443
+  if [[ -n "${HY2_LINK_PORT:-}" ]]; then
+    listen_port="$HY2_LINK_PORT"
+  fi
+  [[ -n "$listen_port" ]] || listen_port="<未知端口，请检查 ${HY2_CFG} 的 listen: 行>"
+
   [[ -n "$auth_pass" ]] || auth_pass="<请检查 ${HY2_CFG} 的 auth.password>"
 
   # 读取保存的链接偏好
   if [[ -f "$HY2_LINK_ENV" ]]; then
     # shellcheck disable=SC1090
-    . "$HY2_LINK_ENV" || true
+    。 "$HY2_LINK_ENV" || true
   fi
   host="${HY2_LINK_HOST:-${ip:-<你的服务器IP>}}"
   sni="${HY2_LINK_SNI:-}"
@@ -1826,7 +1836,7 @@ hy2_show_links() {
   hop_start="" ; hop_end=""
   if [[ -f "$HY2_PORT_HOPPING_ENV" ]]; then
     # shellcheck disable=SC1090
-    . "$HY2_PORT_HOPPING_ENV" || true
+    。 "$HY2_PORT_HOPPING_ENV" || true
     hop_start="${HY2_HOP_START:-}"
     hop_end="${HY2_HOP_END:-}"
   fi
@@ -1853,6 +1863,31 @@ hy2_show_links() {
   echo "分享链接（hy2 URI）："
   echo "hy2://${auth_pass}@${host}:${port_part}/?${qs}"
   echo
+}
+
+hy2_fix_cfg_permissions() {
+  need_root
+  [[ -f "$HY2_CFG" ]] || return 0
+
+  # 读取 systemd service 的 User=（没有则默认 root）
+  local unit="/etc/systemd/system/hysteria-server.service"
+  local svc_user=""
+  svc_user="$(awk -F= '/^[[:space:]]*User=/{print $2; exit}' "$unit" 2>/dev/null | tr -d '\r' || true)"
+
+  # systemctl show -p User 的结果也可能更准；两者取一个即可
+  if [[ -z "$svc_user" ]]; then
+    svc_user="$(systemctl show -p User --value hysteria-server.service 2>/dev/null | tr -d '\r' || true)"
+  fi
+
+  # 没写 User= 或为 root -> 600 没问题
+  if [[ -z "$svc_user" || "$svc_user" == "root" ]]; then
+    chmod 600 "$HY2_CFG" 2>/dev/null || true
+    return 0
+  fi
+
+  # 让 root 可写、hysteria 可读（组读），其他人不可读
+  chown root:"$svc_user" "$HY2_CFG" 2>/dev/null || chown "$svc_user":"$svc_user" "$HY2_CFG" 2>/dev/null || true
+  chmod 640 "$HY2_CFG" 2>/dev/null || true
 }
 
 hy2_config_wizard() {
@@ -1934,7 +1969,7 @@ EOF
 
     log "已写入 ACME 配置。注意：ACME 通常需要 80 端口可达用于验证。"
     # ACME：通常用域名连接，证书校验正常（insecure=0）
-    hy2_save_link_env "${domain}" "${domain}" "0"
+    hy2_save_link_env "${link_host}" "${link_sni}" "${link_insecure}" "${port}"
 
   elif [[ "$mode" == "2" ]]; then
     local cert key
@@ -1975,6 +2010,8 @@ EOF
   fi
 
   chmod 600 "$HY2_CFG" 2>/dev/null || true
+
+  hy2_fix_cfg_permissions
 
   # 启动并自启
   systemctl daemon-reload >/dev/null 2>&1 || true
