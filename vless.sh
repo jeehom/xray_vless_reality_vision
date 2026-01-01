@@ -6,7 +6,7 @@ set -euo pipefail
 # 使用方法：bash -c 'curl -fsSL "https://raw.githubusercontent.com/jeehom/XVRV/main/vless.sh" -o /usr/local/bin/vless && chmod +x /usr/local/bin/vless && exec /usr/local/bin/vless'
 # ============================================================
 
-SCRIPT_VERSION="2026-01-01 22:55"
+SCRIPT_VERSION="2026-01-01 22:59"
 AUTO_CHECK_UPDATES="${AUTO_CHECK_UPDATES:-1}"   # 1=启用；0=关闭
 XRAY_BIN="/usr/local/bin/xray"
 XRAY_ETC_DIR="/etc/xray"
@@ -1503,11 +1503,13 @@ update_self() {
 }
 
 hy2(){
-    wget -N https://raw.githubusercontent.com/Jeehom/XVRV/main/hy2.sh
-    bash hy2.sh
-    
-    rm -f hy2.sh
+  local tmp
+  tmp="$(mktemp -t hy2.XXXXXX)"
+  curl -fsSL "https://raw.githubusercontent.com/Jeehom/XVRV/main/hy2.sh" -o "$tmp" || return 1
+  bash "$tmp"
+  rm -f "$tmp"
 }
+
 
 menu() {
   while true; do
