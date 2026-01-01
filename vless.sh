@@ -3,9 +3,10 @@ set -euo pipefail
 
 # ============================================================
 # Xray VLESS + REALITY + Vision 管理脚本（Debian/Ubuntu）
+# 使用方法：bash -c 'curl -fsSL "https://raw.githubusercontent.com/jeehom/XVRV/main/vless.sh" -o /usr/local/bin/vless && chmod +x /usr/local/bin/vless && exec /usr/local/bin/vless'
 # ============================================================
 
-SCRIPT_VERSION="2026-01-01 17:40"
+SCRIPT_VERSION="2026-01-01 17:52"
 AUTO_CHECK_UPDATES="${AUTO_CHECK_UPDATES:-1}"   # 1=启用；0=关闭
 XRAY_BIN="/usr/local/bin/xray"
 XRAY_ETC_DIR="/etc/xray"
