@@ -5,7 +5,7 @@ set -euo pipefail
 # Xray VLESS + REALITY + Vision 管理脚本（Debian/Ubuntu）
 # ============================================================
 
-SCRIPT_VERSION="2026-01-01 10:55"
+SCRIPT_VERSION="2026-01-01 11:03"
 AUTO_CHECK_UPDATES="${AUTO_CHECK_UPDATES:-1}"   # 1=启用；0=关闭
 XRAY_BIN="/usr/local/bin/xray"
 XRAY_ETC_DIR="/etc/xray"
@@ -1288,13 +1288,20 @@ service_menu() {
 
 get_remote_script_version() {
   # 从远端脚本里提取 SCRIPT_VERSION="..."
-  # 只抓前 120 行，速度快，也不容易被大文件影响
-  curl -fsSL --max-time 8 "$SELF_URL" 2>/dev/null \
-    | head -n 120 \
-    | awk -F'"' '/^SCRIPT_VERSION="/ {print $2; exit}' \
+  # 加“防缓存”参数 + no-cache 头，尽量避免拿到旧版本
+  local url="${SELF_URL}"
+  local bust
+  bust="$(date +%s)"
+
+  curl -fsSL --max-time 10 \
+    -H "Cache-Control: no-cache" -H "Pragma: no-cache" \
+    "${url}?_=${bust}" 2>/dev/null \
+    | head -n 200 \
+    | awk -F'"' '/^[[:space:]]*SCRIPT_VERSION="/ {print $2; exit}' \
     | tr -d '\r' \
     || true
 }
+
 
 auto_check_self_update() {
   [[ "${AUTO_CHECK_UPDATES}" == "1" ]] || return 0
@@ -1302,22 +1309,37 @@ auto_check_self_update() {
   command -v curl >/dev/null 2>&1 || return 0
   [[ -n "${SELF_URL:-}" ]] || return 0
 
-  local remote_ver
+  local remote_ver local_ver
+  local_ver="${SCRIPT_VERSION:-unknown}"
   remote_ver="$(get_remote_script_version || true)"
   [[ -n "$remote_ver" ]] || return 0
 
-  if [[ "${SCRIPT_VERSION:-unknown}" != "$remote_ver" ]]; then
-    echo
-    echo "[!] 检测到脚本有新版本："
-    echo "    本地：${SCRIPT_VERSION:-unknown}"
-    echo "    远端：${remote_ver}"
-    read -r -p "是否现在更新脚本？输入 yes 更新（回车跳过）： " ans
-    if [[ "${ans:-}" == "yes" ]]; then
-      # 关键：告诉 update_self 这是“自动更新模式”，不要二次确认，并自动重启
-      UPDATE_SELF_MODE="auto" update_self
-    fi
+  # 只在“远端版本更大”时提示更新
+  # 你的版本格式是：YYYY-MM-DD HH:MM ，可以直接转 epoch 比较
+  local local_ts remote_ts
+  local_ts="$(date -d "$local_ver" +%s 2>/dev/null || echo 0)"
+  remote_ts="$(date -d "$remote_ver" +%s 2>/dev/null || echo 0)"
+
+  # 如果解析失败（=0），就退化为“不提示”，避免误报
+  if [[ "$local_ts" -le 0 || "$remote_ts" -le 0 ]]; then
+    return 0
+  fi
+
+  # 远端不比本地新：不提示（包括远端更旧的情况）
+  if [[ "$remote_ts" -le "$local_ts" ]]; then
+    return 0
+  fi
+
+  echo
+  echo "[!] 检测到脚本有新版本："
+  echo "    本地：${local_ver}"
+  echo "    远端：${remote_ver}"
+  read -r -p "是否现在更新脚本？输入 YES 更新（回车跳过）： " ans
+  if [[ "${ans:-}" == "YES" ]]; then
+    UPDATE_SELF_MODE="auto" update_self
   fi
 }
+
 
 auto_check_xray_update() {
   [[ "${AUTO_CHECK_UPDATES}" == "1" ]] || return 0
