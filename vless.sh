@@ -5,7 +5,7 @@ set -euo pipefail
 # Xray VLESS + REALITY + Vision 管理脚本（Debian/Ubuntu）
 # ============================================================
 
-SCRIPT_VERSION="2026-01-01 10:52"
+SCRIPT_VERSION="2026-01-01 10:55"
 AUTO_CHECK_UPDATES="${AUTO_CHECK_UPDATES:-1}"   # 1=启用；0=关闭
 XRAY_BIN="/usr/local/bin/xray"
 XRAY_ETC_DIR="/etc/xray"
@@ -220,7 +220,7 @@ download_xray() {
   url="https://github.com/XTLS/Xray-core/releases/download/${tag}/${filename}"
 
   tmpdir="$(mktemp -d)"
-  trap '[[ -n "${tmpdir:-}" ]] && rm -rf "$tmpdir"' EXIT
+  trap '[[ -n "${tmpdir:-}" ]] && rm -rf "$tmpdir"' RETURN
 
   log "正在下载 Xray ${tag}（${filename}）..."
   curl -fL --retry 3 --retry-delay 1 -o "${tmpdir}/${filename}" "$url"
@@ -1461,7 +1461,7 @@ menu() {
     echo "12) 查看配置备份"
     echo "13) 回滚配置"
     echo "14) 服务器设置"
-    echo "15) 更新脚本"
+    echo "15) 更新脚本（当前：${SCRIPT_VERSION}）"
     echo "0) 退出"
     echo "======================================================"
     read -r -p "请选择操作编号： " choice
