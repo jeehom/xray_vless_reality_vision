@@ -67,9 +67,31 @@ detect_arch() {
 apt_install_deps() {
   log "正在安装依赖..."
   export DEBIAN_FRONTEND=noninteractive
+
+  # 因为脚本有 set -euo pipefail，这里要暂时允许失败，否则 apt-get update 一失败就直接退出整个脚本
+  set +e
   apt-get update -y
+  local rc=$?
+  set -e
+
+  if [[ $rc -ne 0 ]]; then
+    warn "apt-get update 失败（通常是第三方源失效/404/没有 Release 文件）。"
+    echo
+    echo "你可以用下面命令定位坏源（例如 rspamd）："
+    echo "  grep -R --line-number \"rspamd\" /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null"
+    echo
+    echo "临时禁用 rspamd 源（示例）："
+    echo "  sudo mv /etc/apt/sources.list.d/rspamd*.list /etc/apt/sources.list.d/rspamd.disabled 2>/dev/null || true"
+    echo
+    echo "然后重试："
+    echo "  sudo apt-get update -y"
+    echo
+    return 1
+  fi
+
   apt-get install -y --no-install-recommends curl unzip jq openssl uuid-runtime ca-certificates
 }
+
 
 fetch_latest_tag() {
   local tag=""
@@ -638,7 +660,11 @@ show_links() {
 install_xray() {
   need_root
   prompt_install_params
-  apt_install_deps
+  if ! apt_install_deps; then
+    warn "依赖安装未完成：请先修复 apt 源问题后再重试安装。"
+    return 0
+  fi
+
 
   local tag
   if [[ -n "${XRAY_TAG}" ]]; then
