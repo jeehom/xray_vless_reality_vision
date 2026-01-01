@@ -1648,51 +1648,6 @@ update_self() {
   return 0
 }
 
-hy2_service_menu() {
-  while true; do
-    echo
-    echo "================ HY2 服务管理 ================"
-    echo "1) 查看状态"
-    echo "2) 启动服务"
-    echo "3) 停止服务"
-    echo "4) 重启服务"
-    echo "5) 查看日志"
-    echo "0) 返回上一层"
-    echo "============================================="
-    read -r -p "请选择操作编号： " c
-    case "$c" in
-      1) hy2_status;  pause_or_exit ;;
-      2) hy2_start;   pause_or_exit ;;
-      3) hy2_stop;    pause_or_exit ;;
-      4) hy2_restart; pause_or_exit ;;
-      5) hy2_logs;    pause_or_exit ;;
-      0) return 0 ;;
-      *) warn "无效选项，请重新输入。" ;;
-    esac
-  done
-}
-
-hy2_menu() {
-  while true; do
-    echo
-    echo "================ HY2 管理（Hysteria 2） ================"
-    echo "1) 安装/升级 HY2"
-    echo "2) 卸载 HY2（删二进制/删服务/停服务）"
-    echo "3) 服务管理（状态/启动/停止/重启/日志）"
-    echo "4) 检测/更新 HY2（类似 update_xray）"
-    echo "0) 返回主菜单"
-    echo "========================================================"
-    read -r -p "请选择操作编号： " c
-    case "$c" in
-      1) install_hy2;     pause_or_exit ;;
-      2) uninstall_hy2;   pause_or_exit ;;
-      3) hy2_service_menu ;;
-      4) update_hy2;      pause_or_exit ;;
-      0) return 0 ;;
-      *) warn "无效选项，请重新输入。" ;;
-    esac
-  done
-}
 
 hy2_random_password() {
   openssl rand -base64 18 | tr -d '\n'
@@ -1817,6 +1772,51 @@ EOF
   systemctl --no-pager --full status "$HY2_SERVICE" || true
 }
 
+hy2_service_menu() {
+  while true; do
+    echo
+    echo "================ HY2 服务管理 ================"
+    echo "1) 查看状态"
+    echo "2) 启动服务"
+    echo "3) 停止服务"
+    echo "4) 重启服务"
+    echo "5) 查看日志"
+    echo "0) 返回上一层"
+    echo "============================================="
+    read -r -p "请选择操作编号： " c
+    case "$c" in
+      1) hy2_status;  pause_or_exit ;;
+      2) hy2_start;   pause_or_exit ;;
+      3) hy2_stop;    pause_or_exit ;;
+      4) hy2_restart; pause_or_exit ;;
+      5) hy2_logs;    pause_or_exit ;;
+      0) return 0 ;;
+      *) warn "无效选项，请重新输入。" ;;
+    esac
+  done
+}
+
+hy2_menu() {
+  while true; do
+    echo
+    echo "================ HY2 管理（Hysteria 2） ================"
+    echo "1) 安装/升级 HY2"
+    echo "2) 卸载 HY2（删二进制/删服务/停服务）"
+    echo "3) 服务管理（状态/启动/停止/重启/日志）"
+    echo "4) 检测/更新 HY2（类似 update_xray）"
+    echo "0) 返回主菜单"
+    echo "========================================================"
+    read -r -p "请选择操作编号： " c
+    case "$c" in
+      1) install_hy2;     pause_or_exit ;;
+      2) uninstall_hy2;   pause_or_exit ;;
+      3) hy2_service_menu ;;
+      4) update_hy2;      pause_or_exit ;;
+      0) return 0 ;;
+      *) warn "无效选项，请重新输入。" ;;
+    esac
+  done
+}
 menu() {
   while true; do
     echo
