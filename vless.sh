@@ -5,7 +5,7 @@ set -euo pipefail
 # Xray VLESS + REALITY + Vision 管理脚本（Debian/Ubuntu）
 # ============================================================
 
-SCRIPT_VERSION="2026-01-01 10:39"
+SCRIPT_VERSION="2026-01-01 10:44"
 AUTO_CHECK_UPDATES="${AUTO_CHECK_UPDATES:-1}"   # 1=启用；0=关闭
 XRAY_BIN="/usr/local/bin/xray"
 XRAY_ETC_DIR="/etc/xray"
@@ -175,15 +175,15 @@ update_xray() {
     fi
   fi
 
-  read -r -p "发现新版本，是否更新到 ${latest_ver}？输入 YES 确认，回车/0/q 取消： " ans
+  read -r -p "发现新版本，是否更新到 ${latest_ver}？输入 yes 确认，回车/0/q 取消： " ans
   case "${ans:-}" in
-    YES) ;;
+    yes) ;;
     ""|0|q|Q)
       log "已取消更新。"
       return 0
       ;;
     *)
-      warn "未输入 YES，已取消。"
+      warn "未输入 yes，已取消。"
       return 0
       ;;
   esac
@@ -1178,18 +1178,18 @@ restore_ipv6() {
   echo "      net.ipv6.conf.lo.disable_ipv6"
   echo "  - 然后执行 sysctl --system 使其生效"
   echo
-  echo "输入 YES 确认执行；回车/0/q 取消。"
+  echo "输入 yes 确认执行；回车/0/q 取消。"
   read -r -p "确认： " ans
 
   case "${ans:-}" in
-    YES)
+    yes)
       ;;
     ""|0|q|Q)
       log "已取消，未修改任何内容。"
       return 0
       ;;
     *)
-      warn "未输入 YES，已取消。"
+      warn "未输入 yes，已取消。"
       return 0
       ;;
   esac
@@ -1312,8 +1312,8 @@ auto_check_self_update() {
     echo "[!] 检测到脚本有新版本："
     echo "    本地：${SCRIPT_VERSION:-unknown}"
     echo "    远端：${remote_ver}"
-    read -r -p "是否现在更新脚本？输入 YES 更新（回车跳过）： " ans
-    if [[ "${ans:-}" == "YES" ]]; then
+    read -r -p "是否现在更新脚本？输入 yes 更新（回车跳过）： " ans
+    if [[ "${ans:-}" == "yes" ]]; then
       # 关键：告诉 update_self 这是“自动更新模式”，不要二次确认，并自动重启
       UPDATE_SELF_MODE="auto" update_self
     fi
@@ -1346,8 +1346,8 @@ auto_check_xray_update() {
   echo "[!] 检测到 Xray 可更新："
   echo "    当前：${installed_ver}"
   echo "    最新：${latest_ver}"
-  read -r -p "是否现在更新 Xray？输入 YES 更新（回车跳过）： " ans
-  if [[ "${ans:-}" == "YES" ]]; then
+  read -r -p "是否现在更新 Xray？输入 yes 更新（回车跳过）： " ans
+  if [[ "${ans:-}" == "yes" ]]; then
     update_xray
   fi
 }
@@ -1402,15 +1402,15 @@ update_self() {
   # 手动更新才需要二次确认；自动更新模式直接继续
   if [[ "$mode" == "manual" ]]; then
     echo
-    read -r -p "输入 YES 确认更新（回车/0/q 取消）： " ans
+    read -r -p "输入 yes 确认更新（回车/0/q 取消）： " ans
     case "${ans:-}" in
-      YES) ;;
+      yes) ;;
       ""|0|q|Q)
         log "已取消更新脚本。"
         return 0
         ;;
       *)
-        warn "未输入 YES，已取消。"
+        warn "未输入 yes，已取消。"
         return 0
         ;;
     esac
@@ -1431,7 +1431,7 @@ update_self() {
   echo "  新版本：${remote_ver}"
   echo
 
-  # 自动更新模式：默认自动重启；手动模式保留提示（但不再要求 YES）
+  # 自动更新模式：默认自动重启；手动模式保留提示（但不再要求 yes）
   if [[ "$mode" == "auto" ]]; then
     exec "$target"
   else
