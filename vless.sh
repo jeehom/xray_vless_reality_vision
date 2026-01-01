@@ -5,7 +5,7 @@ set -euo pipefail
 # Xray VLESS + REALITY + Vision 管理脚本（Debian/Ubuntu）
 # ============================================================
 
-SCRIPT_VERSION="2026-01-01 10:44"
+SCRIPT_VERSION="2026-01-01 10:47"
 AUTO_CHECK_UPDATES="${AUTO_CHECK_UPDATES:-1}"   # 1=启用；0=关闭
 XRAY_BIN="/usr/local/bin/xray"
 XRAY_ETC_DIR="/etc/xray"
@@ -1482,7 +1482,7 @@ menu() {
       12) menu_list_backups;  pause_or_exit ;;
       13) menu_rollback;      pause_or_exit ;;
       14) server_settings_menu ;;
-      15) update_self; pause_or_exit ;;
+      15) UPDATE_SELF_MODE="auto" update_self ;;
       0) exit 0 ;;
       *) warn "无效选项，请重新输入。" ;;
     esac
