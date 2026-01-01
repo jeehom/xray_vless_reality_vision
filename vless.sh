@@ -5,7 +5,7 @@ set -euo pipefail
 # Xray VLESS + REALITY + Vision 管理脚本（Debian/Ubuntu）
 # ============================================================
 
-SCRIPT_VERSION="2026-01-01 11:21"
+SCRIPT_VERSION="2026-01-01 11:30"
 AUTO_CHECK_UPDATES="${AUTO_CHECK_UPDATES:-1}"   # 1=启用；0=关闭
 XRAY_BIN="/usr/local/bin/xray"
 XRAY_ETC_DIR="/etc/xray"
@@ -644,7 +644,7 @@ show_links() {
   while IFS= read -r uuid; do
     [[ -n "$uuid" ]] || continue
     i=$((i+1))
-    name="vless-reality-${i}"
+    name="xray-reality-${i}"
     link="vless://${uuid}@${ip}:${port}?encryption=none&security=reality&sni=${sni}&fp=${fp}&pbk=${pubkey}&sid=${shortid}&type=tcp&flow=xtls-rprx-vision#${name}"
     echo
     echo "用户 #${i}：${uuid}"
