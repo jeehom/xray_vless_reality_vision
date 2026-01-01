@@ -5,7 +5,7 @@ set -euo pipefail
 # Xray VLESS + REALITY + Vision 管理脚本（Debian/Ubuntu）
 # ============================================================
 
-SCRIPT_VERSION="2026-01-01 11:10"
+SCRIPT_VERSION="2026-01-01 11:21"
 AUTO_CHECK_UPDATES="${AUTO_CHECK_UPDATES:-1}"   # 1=启用；0=关闭
 XRAY_BIN="/usr/local/bin/xray"
 XRAY_ETC_DIR="/etc/xray"
@@ -1411,15 +1411,34 @@ update_self() {
   echo "本地脚本版本：${local_ver}"
 
   target="${SELF_INSTALL_PATH_DEFAULT}"
-
   if [[ "$(readlink -f "$cur" 2>/dev/null || echo "$cur")" == "$target" ]]; then
     target="$cur"
   fi
-
   echo "将更新到：${target}"
   echo
 
-  local tmp ts bak remote_ver
+  # 先获取远端版本号（不落盘）
+  local remote_ver
+  remote_ver="$(get_remote_script_version || true)"
+  [[ -n "$remote_ver" ]] || remote_ver="unknown"
+  echo "远端脚本版本：${remote_ver}"
+  echo
+
+  # ✅ 相同版本直接退出（不下载、不备份、不覆盖）
+  if [[ "$remote_ver" != "unknown" && "$local_ver" == "$remote_ver" ]]; then
+    log "本地与远端版本一致，无需更新。"
+    return 0
+  fi
+
+  # 手动更新才需要确认；自动更新模式直接继续
+  if [[ "$mode" == "manual" ]]; then
+    if ! confirm_yes "发现新版本，是否更新脚本？输入 yes 确认，回车/0/q 取消： "; then
+      log "已取消更新脚本。"
+      return 0
+    fi
+  fi
+
+  local tmp ts bak
   tmp="$(mktemp -t vless.XXXXXX)"
   ts="$(date +"%Y%m%d-%H%M%S")"
   trap 'rm -f "$tmp"' RETURN
@@ -1430,6 +1449,7 @@ update_self() {
     return 0
   fi
 
+  # 简单自检：避免下载到 HTML/错误页
   if ! head -n 1 "$tmp" | grep -qE '^#!/usr/bin/env bash'; then
     warn "下载内容疑似不是脚本（首行不是 shebang）。已取消写入。"
     echo "前几行内容如下："
@@ -1437,28 +1457,17 @@ update_self() {
     return 0
   fi
 
+  # 再从下载文件里提一次版本号，作为最终展示（更准确）
   remote_ver="$(awk -F'"' '/^SCRIPT_VERSION="/ {print $2; exit}' "$tmp" | tr -d '\r' || true)"
   [[ -n "$remote_ver" ]] || remote_ver="unknown"
 
-  echo "远端脚本版本：${remote_ver}"
-
-  # 手动更新才需要二次确认；自动更新模式直接继续
-  if [[ "$mode" == "manual" ]]; then
-    echo
-    read -r -p "输入 yes 确认更新（回车/0/q 取消）： " ans
-    case "${ans:-}" in
-      yes) ;;
-      ""|0|q|Q)
-        log "已取消更新脚本。"
-        return 0
-        ;;
-      *)
-        warn "未输入 yes，已取消。"
-        return 0
-        ;;
-    esac
+  # ✅ 如果下载后发现还是同版本（比如刚刚 remote 变化），也不写入
+  if [[ "$remote_ver" != "unknown" && "$local_ver" == "$remote_ver" ]]; then
+    log "下载后确认本地与远端版本一致，无需更新。"
+    return 0
   fi
 
+  # 备份旧文件
   if [[ -f "$target" ]]; then
     bak="${target}.bak-${ts}"
     cp -a "$target" "$bak" || true
@@ -1474,17 +1483,13 @@ update_self() {
   echo "  新版本：${remote_ver}"
   echo
 
-  # 自动更新模式：默认自动重启；手动模式保留提示（但不再要求 yes）
+  # 自动更新模式：继续保持自动重启
   if [[ "$mode" == "auto" ]]; then
     exec "$target"
-  else
-    read -r -p "是否立即用新版本重新启动脚本？回车跳过，输入 r 立即重启： " r
-    if [[ "${r:-}" == "r" || "${r:-}" == "R" ]]; then
-      exec "$target"
-    fi
   fi
-}
 
+  return 0
+}
 
 
 menu() {
@@ -1519,7 +1524,7 @@ menu() {
       9) menu_list_backups;  pause_or_exit ;;
       10) menu_rollback;      pause_or_exit ;;
       11) server_settings_menu ;;
-      12) UPDATE_SELF_MODE="auto" update_self;      pause_or_exit ;;
+      12) update_self; pause_or_exit ;;
       0) exit 0 ;;
       *) warn "无效选项，请重新输入。" ;;
     esac
