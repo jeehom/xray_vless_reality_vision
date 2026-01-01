@@ -5,7 +5,7 @@ set -euo pipefail
 # Xray VLESS + REALITY + Vision 管理脚本（Debian/Ubuntu）
 # ============================================================
 
-SCRIPT_VERSION="2026-01-01 11:03"
+SCRIPT_VERSION="2026-01-01 11:08"
 AUTO_CHECK_UPDATES="${AUTO_CHECK_UPDATES:-1}"   # 1=启用；0=关闭
 XRAY_BIN="/usr/local/bin/xray"
 XRAY_ETC_DIR="/etc/xray"
@@ -1260,6 +1260,28 @@ server_settings_menu() {
     esac
   done
 }
+user_menu() {
+  while true; do
+    echo
+    echo "================ 用户管理（UUID） ================"
+    echo "1) 查看用户列表（UUID）"
+    echo "2) 添加用户（UUID）"
+    echo "3) 删除用户（按序号）"
+    echo "4) 修改用户 UUID（按序号）"
+    echo "0) 返回主菜单"
+    echo "=================================================="
+    read -r -p "请选择操作编号： " c
+
+    case "$c" in
+      1) list_users;        pause_or_exit ;;
+      2) add_user;          pause_or_exit ;;
+      3) remove_user;       pause_or_exit ;;
+      4) replace_user_uuid; pause_or_exit ;;
+      0) return 0 ;;
+      *) warn "无效选项，请重新输入。" ;;
+    esac
+  done
+}
 
 service_menu() {
   while true; do
@@ -1474,16 +1496,13 @@ menu() {
     echo "3) 服务管理（状态/启动/停止/重启/更新）"
     echo "4) 显示客户端链接"
     echo "5) 修改端口"
-    echo "6) 查看用户（UUID 列表）"
-    echo "7) 添加用户（UUID）"
-    echo "8) 删除用户（按序号）"
-    echo "9) 修改用户 UUID（按序号）"
-    echo "10) 设置 IPv4 分流域名（这些域名走 IPv4 出口）"
-    echo "11) 查看日志（journalctl）"
-    echo "12) 查看配置备份"
-    echo "13) 回滚配置"
-    echo "14) 服务器设置"
-    echo "15) 更新脚本（当前：${SCRIPT_VERSION}）"
+    echo "6) 用户管理（查看/添加/删除/修改 UUID）"
+    echo "7) 设置 IPv4 分流域名（这些域名走 IPv4 出口）"
+    echo "8) 查看日志（journalctl）"
+    echo "9) 查看配置备份"
+    echo "10) 回滚配置"
+    echo "11) 服务器设置"
+    echo "12) 更新脚本（当前：${SCRIPT_VERSION}）"
     echo "0) 退出"
     echo "======================================================"
     read -r -p "请选择操作编号： " choice
@@ -1494,16 +1513,13 @@ menu() {
       3) service_menu ;;
       4) show_links;          pause_or_exit ;;
       5) set_port;            pause_or_exit ;;
-      6) list_users;          pause_or_exit ;;
-      7) add_user;            pause_or_exit ;;
-      8) remove_user;         pause_or_exit ;;
-      9) replace_user_uuid;   pause_or_exit ;;
-      10) set_ipv4_domains;   pause_or_exit ;;
-      11) logs_xray;          pause_or_exit ;;
-      12) menu_list_backups;  pause_or_exit ;;
-      13) menu_rollback;      pause_or_exit ;;
-      14) server_settings_menu ;;
-      15) UPDATE_SELF_MODE="auto" update_self;      pause_or_exit ;;
+      6) user_menu ;;
+      7) set_ipv4_domains;   pause_or_exit ;;
+      8) logs_xray;          pause_or_exit ;;
+      9) menu_list_backups;  pause_or_exit ;;
+      10) menu_rollback;      pause_or_exit ;;
+      11) server_settings_menu ;;
+      12) UPDATE_SELF_MODE="auto" update_self;      pause_or_exit ;;
       0) exit 0 ;;
       *) warn "无效选项，请重新输入。" ;;
     esac
