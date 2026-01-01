@@ -5,7 +5,7 @@ set -euo pipefail
 # Xray VLESS + REALITY + Vision 管理脚本（Debian/Ubuntu）
 # ============================================================
 
-SCRIPT_VERSION="2026-01-01 10:13"
+SCRIPT_VERSION="2026-01-01 10:34"
 AUTO_CHECK_UPDATES="${AUTO_CHECK_UPDATES:-1}"   # 1=启用；0=关闭
 XRAY_BIN="/usr/local/bin/xray"
 XRAY_ETC_DIR="/etc/xray"
@@ -1353,22 +1353,21 @@ auto_check_xray_update() {
 }
 
 update_self() {
-  # 需要写 /usr/local/bin，最好要求 root
   need_root
 
   local url="${SELF_URL}"
   local cur="${0}"
   local target=""
+  local local_ver="${SCRIPT_VERSION:-unknown}"
 
   echo
   echo "=== 更新脚本 ==="
   echo "更新地址：${url}"
   echo "当前运行路径：${cur}"
+  echo "本地脚本版本：${local_ver}"
 
-  # 优先更新“固定安装路径”，这样下次命令最简单：sudo -i vless
   target="${SELF_INSTALL_PATH_DEFAULT}"
 
-  # 如果当前就是 /usr/local/bin/vless，也可以直接覆盖它（等价）
   if [[ "$(readlink -f "$cur" 2>/dev/null || echo "$cur")" == "$target" ]]; then
     target="$cur"
   fi
@@ -1376,20 +1375,7 @@ update_self() {
   echo "将更新到：${target}"
   echo
 
-  read -r -p "输入 YES 确认更新（回车/0/q 取消）： " ans
-  case "${ans:-}" in
-    YES) ;;
-    ""|0|q|Q)
-      log "已取消更新脚本。"
-      return 0
-      ;;
-    *)
-      warn "未输入 YES，已取消。"
-      return 0
-      ;;
-  esac
-
-  local tmp ts bak
+  local tmp ts bak remote_ver
   tmp="$(mktemp -t vless.XXXXXX)"
   ts="$(date +"%Y%m%d-%H%M%S")"
   trap 'rm -f "$tmp"' RETURN
@@ -1408,6 +1394,34 @@ update_self() {
     return 0
   fi
 
+  # 解析远端脚本版本（只取第一个匹配）
+  remote_ver="$(awk -F'"' '/^SCRIPT_VERSION="/ {print $2; exit}' "$tmp" | tr -d '\r' || true)"
+  [[ -n "$remote_ver" ]] || remote_ver="unknown"
+
+  echo
+  echo "远端脚本版本：${remote_ver}"
+  if [[ "$remote_ver" != "unknown" && "$local_ver" != "unknown" && "$remote_ver" == "$local_ver" ]]; then
+    log "本地已是远端同版本（${local_ver}），无需更新。"
+    read -r -p "仍要强制覆盖更新吗？输入 YES 继续（回车取消）： " force
+    if [[ "${force:-}" != "YES" ]]; then
+      log "已取消更新脚本。"
+      return 0
+    fi
+  else
+    read -r -p "输入 YES 确认更新（回车/0/q 取消）： " ans
+    case "${ans:-}" in
+      YES) ;;
+      ""|0|q|Q)
+        log "已取消更新脚本。"
+        return 0
+        ;;
+      *)
+        warn "未输入 YES，已取消。"
+        return 0
+        ;;
+    esac
+  fi
+
   # 备份旧文件（如果存在）
   if [[ -f "$target" ]]; then
     bak="${target}.bak-${ts}"
@@ -1419,16 +1433,20 @@ update_self() {
   log "脚本已更新：${target}"
 
   echo
+  echo "更新完成："
+  echo "  原版本：${local_ver}"
+  echo "  新版本：${remote_ver}"
+  echo
   echo "下次运行你可以直接用："
   echo "  sudo -i ${target}"
   echo
 
-  # 可选：是否立刻重启脚本（用新版本重新启动）
   read -r -p "是否立即用新版本重新启动脚本？输入 YES 立即重启（回车跳过）： " r
   if [[ "${r:-}" == "YES" ]]; then
     exec "$target"
   fi
 }
+
 
 menu() {
   while true; do
