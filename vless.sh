@@ -6,7 +6,7 @@ set -euo pipefail
 # 使用方法：bash -c 'curl -fsSL "https://raw.githubusercontent.com/jeehom/XVRV/main/vless.sh" -o /usr/local/bin/vless && chmod +x /usr/local/bin/vless && exec /usr/local/bin/vless'
 # ============================================================
 
-SCRIPT_VERSION="2026-01-01 22:25"
+SCRIPT_VERSION="2026-01-01 22:33"
 AUTO_CHECK_UPDATES="${AUTO_CHECK_UPDATES:-1}"   # 1=启用；0=关闭
 XRAY_BIN="/usr/local/bin/xray"
 XRAY_ETC_DIR="/etc/xray"
@@ -1502,6 +1502,12 @@ update_self() {
   return 0
 }
 
+hy2(){
+    wget -N https://raw.githubusercontent.com/Jeehom/XVRV/main/hy2.sh
+    bash hy2.sh
+    
+    rm -f hy2.sh
+}
 
 menu() {
   while true; do
@@ -1519,6 +1525,7 @@ menu() {
     echo "10) 回滚配置"
     echo "11) 服务器设置"
     echo "12) 更新脚本（当前：${SCRIPT_VERSION}）"
+    echo "13) hy2 管理
     echo "0) 退出"
     echo "======================================================"
     read -r -p "请选择操作编号： " choice
@@ -1536,6 +1543,7 @@ menu() {
       10) menu_rollback;      pause_or_exit ;;
       11) server_settings_menu ;;
       12) update_self; pause_or_exit ;;
+      13) hy2 ;;
       0) exit 0 ;;
       *) warn "无效选项，请重新输入。" ;;
     esac
